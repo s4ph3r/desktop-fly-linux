@@ -1,5 +1,8 @@
 # DesktopFly для Linux
 
+Этот проект — форк оригинала <a href="https://github.com/DenisSergeevitch/desktop-fly">DenisSergeevitch/desktop-fly</a>.
+Исходная идея и ядро (модель нейронов FlyWire) принадлежат автору. Здесь сделана адаптация под Linux: Electron + three.js для рендеринга и Python (python-xlib) вместо нативного сенсоринга macOS/Windows.
+
 DesktopFly — 3D-муха дрозофила на прозрачном оверлее рабочего стола Linux, приводимая
 в движение той же симуляцией integrate-and-fire с утечкой (LIF) на частоте 1 кГц из
 668 реальных нейронов коннектома FlyWire (FAFB v783).
