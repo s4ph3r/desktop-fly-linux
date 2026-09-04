@@ -55,7 +55,7 @@ npm run behaviortest   # 18 проверок «от начала до конца
 npm test               # оба набора
 ```
 
-`DESKTOPFLY_DEBUG=1 npm start --disable-gpu` логирует террейд окон, геометрию
+`DESKTOPFLY_DEBUG=1 npm start -- --disable-gpu` логирует террейд окон, геометрию
 оверлея и консольный вывод рендерера в stderr.
 
 Наборы тестов запускаются на голом Node — three.js строит граф сцены мухи
@@ -67,7 +67,7 @@ headlessly, поэтому поведение тестируется без GPU.
 sudo apt install python3-pip && pip install python-Xlib
 ```
 
-`npm start --disable-gpu` рекомендуется под X11 — процесс GPU Electron v32 может упасть при
+`npm start -- --disable-gpu` рекомендуется под X11 — процесс GPU Electron v32 может упасть при
 запуске в некоторых драйверах (см. [Известные ограничения](#известные-ограничения)), но производительность упадет.
 Он влияет только на композитер; сама муха рендерится через three.js.
 
