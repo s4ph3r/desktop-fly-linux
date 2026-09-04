@@ -15,16 +15,16 @@ Windows — the open-source Swift toolchain ships only stdlib, Foundation,
 Dispatch and WinSDK. Everything that draws or touches the system had to be
 rewritten; everything that computes came over unchanged in behavior.
 
-| macOS | Windows |
-|---|---|
-| SceneKit | three.js (WebGL) |
-| AppKit `NSPanel`, borderless + `ignoresMouseEvents` | Electron `BrowserWindow`, `transparent` + `setIgnoreMouseEvents` |
-| `NSStatusItem` menu bar | `Tray` |
-| `CGWindowListCopyWindowInfo` | `EnumWindows` + `DwmGetWindowAttribute` via koffi |
-| `NSEvent` global mouse monitor | `GetAsyncKeyState(VK_LBUTTON/VK_RBUTTON)` |
-| `CGEventSource` idle | `powerMonitor.getSystemIdleTime()` |
-| `ProcessInfo.thermalState` | CPU load (no Windows equivalent without vendor drivers) |
-| one `NSScreen`, hop via menu | one overlay across the whole virtual desktop |
+| macOS | Windows | Linux/X11 |
+|---|---|---|
+| SceneKit | three.js (WebGL) | three.js (WebGL) |
+| AppKit `NSPanel`, borderless + `ignoresMouseEvents` | Electron `BrowserWindow`, `transparent` + `setIgnoreMouseEvents` | same as Windows |
+| `NSStatusItem` menu bar | `Tray` | same as Windows |
+| `CGWindowListCopyWindowInfo` | `EnumWindows` + `DwmGetWindowAttribute` via koffi | X11 via Python + python-xlib (`linux_env.py`) |
+| `NSEvent` global mouse monitor | `GetAsyncKeyState(VK_LBUTTON/VK_RBUTTON)` | `XQueryPointer` on the root window (via Python) |
+| `CGEventSource` idle | `powerMonitor.getSystemIdleTime()` | same as Windows |
+| `ProcessInfo.thermalState` | CPU load (no Windows equivalent without vendor drivers) | same — CPU-load tempo |
+| one `NSScreen`, hop via menu | one overlay across the whole virtual desktop | same as Windows |
 
 ## Run
 
@@ -38,6 +38,38 @@ npm test               # both
 
 `DESKTOPFLY_DEBUG=1 npm start` logs window terrain, overlay geometry and
 renderer console output to stderr.
+
+### Linux / X11
+
+The Electron port runs on Linux out of the box — three.js draws headlessly, so
+the fly's body needs no GPU. The only platform-specific change is how it senses
+the desktop: macOS uses `CGWindowListCopyWindowInfo` and Windows uses user32 via
+koffi, but neither exists under X11. Instead this port shells out to a small
+Python script (`src/linux_env.py`) that talks directly to the X server through
+[python-xlib](https://pypi.org/project/python-Xlib/):
+
+- **Window terrain** — `XQueryTree` on the root window, then for each child
+  `get_attributes()` (visible), `get_geometry()` (frame) and `_NET_WM_WINDOW_TYPE`
+  (skip toolbars/docks/desktop). Own-process windows are filtered out by
+  `_NET_WM_PID`. Each window is wrapped in try/except, so a window that dies
+  mid-enumeration is skipped rather than crashing the app.
+- **Mouse buttons** — `XQueryPointer` on the root window → `Button1Mask` /
+  `Button3Mask`.
+
+The Python script is invoked synchronously from `src/linuxX11.js` via
+`spawnSync`, so the interface (`listWindows`, `pollMouseButtons`,
+`linuxAvailable`) matches `win32.js` exactly. On a machine without python3 or
+python-xlib the fly still runs but loses window ledges and click taps (a warning
+is printed on startup).
+
+```sh
+pip install python-Xlib        # or: sudo apt install python3-Xlib
+npm start -- --disable-gpu     # see "GPU note" below
+```
+
+`--disable-gpu` is recommended under X11 — Electron v32's GPU process can crash
+on launch in some drivers (see [Known limits](#known-limits)). It only affects
+the compositor; the fly itself renders through three.js.
 
 The suites run on bare Node — three.js builds the fly's scene graph headlessly,
 so behavior is testable without a GPU.
@@ -81,6 +113,12 @@ overlay therefore stays resizable and the scene is always told the window's
   fly is hidden there. Borderless fullscreen is fine.
 - `koffi` provides the Win32 calls. Without it the fly still runs, but loses
   window ledges and click taps (a warning is printed on startup).
+- On Linux/X11, Electron v32's GPU process can fail to launch under some drivers
+  (`GPU process isn't usable`, sometimes a crash). Start with `npm start --
+  --disable-gpu` — the fly renders through three.js regardless.
+- The old Windows port used `screen.screenToDipPoint`, which Electron v32
+  removed; the Linux path converts physical pixels to DIP via the display's
+  `scaleFactor` instead.
 
 ## Layout
 
@@ -94,6 +132,8 @@ overlay therefore stays resizable and the scene is always told the window's
 | `src/flymodel.js` | port of `FlyModel.swift` (body geometry + behavior) |
 | `src/signals.js` | port of `SignalBuilder` |
 | `src/win32.js` | user32/dwmapi through koffi |
+| `src/linux_env.py` | X11 window/mouse sensing via python-xlib (shelled out from linuxX11.js) |
+| `src/linuxX11.js` | Linux environment bridge — runs linux_env.py synchronously |
 | `src/environment.js` | circadian curve, CPU-load tempo |
 | `src/data.js` | Node-only JSON loading (kept out of `sim.js` for the renderer) |
 | `test/` | ports of `--simtest` and `--behaviortest` |
