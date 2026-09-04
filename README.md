@@ -1,142 +1,135 @@
-# DesktopFly for Windows
+# DesktopFly для Windows
 
-The Windows port of DesktopFly: the same 3D fruit fly on a transparent
-desktop overlay, driven by the same 1 kHz leaky-integrate-and-fire simulation
-of 668 real neurons from the FlyWire connectome (FAFB v783).
+Windows-версия DesktopFly: та же 3D-муха дрозофила на прозрачном оверлее рабочего
+стола, приводимая в движение той же симуляцией integrate-and-fire с утечкой (LIF)
+на частоте 1 кГц из 668 реальных нейронов коннектома FlyWire (FAFB v783).
 
-The brain is a line-by-line port of `Sim.swift`; the body and behavior are a
-line-by-line port of `FlyModel.swift`. Both test suites came across with them
-and are the ground truth here just as they are on macOS.
+Мозг — это побайтовый порт `Sim.swift`; тело и поведение — побайтовый порт
+`FlyModel.swift`. Оба набора тестов пришли вместе с ними и являются здесь истиной
+в последней инстанции, как и на macOS.
 
-## Why a port and not a rebuild
+## Почему порт, а не переработка
 
-macOS DesktopFly links `Cocoa` and `SceneKit`, neither of which exists on
-Windows — the open-source Swift toolchain ships only stdlib, Foundation,
-Dispatch and WinSDK. Everything that draws or touches the system had to be
-rewritten; everything that computes came over unchanged in behavior.
+macOS DesktopFly связывает `Cocoa` и `SceneKit`, которых нет ни на Windows —
+исходный Swift-тулчейн поставляется только со stdlib, Foundation, Dispatch и WinSDK.
+Всё, что рисует или взаимодействует с системой, пришлось переписывать; всё, что
+вычисляет, пришло без изменений в поведении.
 
 | macOS | Windows | Linux/X11 |
 |---|---|---|
 | SceneKit | three.js (WebGL) | three.js (WebGL) |
-| AppKit `NSPanel`, borderless + `ignoresMouseEvents` | Electron `BrowserWindow`, `transparent` + `setIgnoreMouseEvents` | same as Windows |
-| `NSStatusItem` menu bar | `Tray` | same as Windows |
-| `CGWindowListCopyWindowInfo` | `EnumWindows` + `DwmGetWindowAttribute` via koffi | X11 via Python + python-xlib (`linux_env.py`) |
-| `NSEvent` global mouse monitor | `GetAsyncKeyState(VK_LBUTTON/VK_RBUTTON)` | `XQueryPointer` on the root window (via Python) |
-| `CGEventSource` idle | `powerMonitor.getSystemIdleTime()` | same as Windows |
-| `ProcessInfo.thermalState` | CPU load (no Windows equivalent without vendor drivers) | same — CPU-load tempo |
-| one `NSScreen`, hop via menu | one overlay across the whole virtual desktop | same as Windows |
+| AppKit `NSPanel`, borderless + `ignoresMouseEvents` | Electron `BrowserWindow`, `transparent` + `setIgnoreMouseEvents` | то же, что и Windows |
+| Меню `NSStatusItem` в строке меню | `Tray` | то же, что и Windows |
+| `CGWindowListCopyWindowInfo` | `EnumWindows` + `DwmGetWindowAttribute` через koffi | X11 через Python + python-xlib (`linux_env.py`) |
+| Глобальный монитор мыши `NSEvent` | `GetAsyncKeyState(VK_LBUTTON/VK_RBUTTON)` | `XQueryPointer` на корневом окне (через Python) |
+| Idle `CGEventSource` | `powerMonitor.getSystemIdleTime()` | то же, что и Windows |
+| Тепловое состояние `ProcessInfo.thermalState` | нагрузка CPU (нет эквивалента на Windows без драйверов вендора) | то же — темп нагрузки CPU |
+| Один `NSScreen`, прыжок через меню | один оверлей на весь виртуальный рабочий стол | то же, что и Windows |
 
-## Run
+## Запуск
 
 ```sh
 npm install
-npm start              # tray icon; quit from there
-npm run simtest        # circuit invariants (MUST pass after sim changes)
-npm run behaviortest   # 18 end-to-end sim -> body checks
-npm test               # both
+npm start              # значок в трее; выход оттуда
+npm run simtest        # инварианты сети (ОБЯЗАТЕЛЬНО проходит после изменений sim)
+npm run behaviortest   # 18 проверок «от начала до конца» sim -> тело
+npm test               # оба набора
 ```
 
-`DESKTOPFLY_DEBUG=1 npm start` logs window terrain, overlay geometry and
-renderer console output to stderr.
+`DESKTOPFLY_DEBUG=1 npm start` логирует террейд окон, геометрию оверлея и
+консольный вывод рендерера в stderr.
 
 ### Linux / X11
 
-The Electron port runs on Linux out of the box — three.js draws headlessly, so
-the fly's body needs no GPU. The only platform-specific change is how it senses
-the desktop: macOS uses `CGWindowListCopyWindowInfo` and Windows uses user32 via
-koffi, but neither exists under X11. Instead this port shells out to a small
-Python script (`src/linux_env.py`) that talks directly to the X server through
-[python-xlib](https://pypi.org/project/python-Xlib/):
+Электронный порт работает на Linux из коробки — three.js рисует headlessly, поэтому
+телу мухи не нужен GPU. Единственное платформозависимое изменение — то, как он
+ощущает рабочий стол: macOS использует `CGWindowListCopyWindowInfo`, а Windows —
+user32 через koffi, но под X11 нет ни того, ни другого. Вместо этого порт вызывает
+небольшой Python-скрипт (`src/linux_env.py`), который напрямую общается с сервером
+X через [python-xlib](https://pypi.org/project/python-Xlib/):
 
-- **Window terrain** — `XQueryTree` on the root window, then for each child
-  `get_attributes()` (visible), `get_geometry()` (frame) and `_NET_WM_WINDOW_TYPE`
-  (skip toolbars/docks/desktop). Own-process windows are filtered out by
-  `_NET_WM_PID`. Each window is wrapped in try/except, so a window that dies
-  mid-enumeration is skipped rather than crashing the app.
-- **Mouse buttons** — `XQueryPointer` on the root window → `Button1Mask` /
+- **Террейд окон** — `XQueryTree` на корневом окне, затем для каждого дочернего
+  окна `get_attributes()` (видимо), `get_geometry()` (рамка) и `_NET_WM_WINDOW_TYPE`
+  (пропустить панели инструментов/док/рабочий стол). Окна собственного процесса
+  отфильтрованы по `_NET_WM_PID`. Каждое окно обернуто в try/except, поэтому окно,
+  умершее посреди перечисления, пропускается вместо краша приложения.
+- **Кнопки мыши** — `XQueryPointer` на корневом окне → `Button1Mask` /
   `Button3Mask`.
 
-The Python script is invoked synchronously from `src/linuxX11.js` via
-`spawnSync`, so the interface (`listWindows`, `pollMouseButtons`,
-`linuxAvailable`) matches `win32.js` exactly. On a machine without python3 or
-python-xlib the fly still runs but loses window ledges and click taps (a warning
-is printed on startup).
+Python-скрипт вызывается синхронно из `src/linuxX11.js` через `spawnSync`, поэтому
+интерфейс (`listWindows`, `pollMouseButtons`, `linuxAvailable`) точно совпадает с
+`win32.js`. На машине без python3 или python-xlib муха всё равно работает, но теряет
+уступы окон и тапы кликов (при запуске печатается предупреждение).
 
 ```sh
-pip install python-Xlib        # or: sudo apt install python3-Xlib
-npm start -- --disable-gpu     # see "GPU note" below
+pip install python-Xlib        # или: sudo apt install python3-Xlib
+npm start -- --disable-gpu     # см. «Примечание по GPU» ниже
 ```
 
-`--disable-gpu` is recommended under X11 — Electron v32's GPU process can crash
-on launch in some drivers (see [Known limits](#known-limits)). It only affects
-the compositor; the fly itself renders through three.js.
+`--disable-gpu` рекомендуется под X11 — процесс GPU Electron v32 может упасть при
+запуске в некоторых драйверах (см. [Известные ограничения](#известные-ограничения)).
+Он влияет только на композитер; сама муха рендерится через three.js.
 
-The suites run on bare Node — three.js builds the fly's scene graph headlessly,
-so behavior is testable without a GPU.
+## Что ощущает муха
 
-## What the fly senses
+Всё — только опрос и не требует диалога разрешений. Как и на macOS, муха узнаёт
+*когда* что-то происходит, никогда *что*:
 
-Everything is poll-only and needs no permission dialog. As on macOS, the fly
-learns *when* things happen, never *what*:
+- **Курсор** — положение и скорость становятся стимулом приближения, разделяются
+  между глазами по азимуту, подаётся на 314 нейронов LC4/LPLC2. Выпад приводит к
+  DNp01 гигантскому волокну, и муха взлетает ~4 мс позже. Быстрое движение рядом —
+  это воздушный толчок на сенсорном пути.
+- **Клики** — глобальное нажатие кнопки мыши — это тап по субстрату мухи, стимулирующий
+  сенсорные нейроны с силой, убывающей с расстоянием.
+- **Окна** — верхние края реальных окон — это проходимые уступы; окно, появляющееся
+  рядом с мухой, — это объект приближения. Читается только геометрия: пиксели под
+  мухой никогда не семплируются.
+- **Печать** — таймер простоя системы говорит, что устройство ввода было затронуто;
+  если курсор не двигался и кнопка не нажималась, это была клавиатура. Ни одна клавиша
+  никогда не опрашивается индивидуально.
+- **Часы и нагрузка CPU** — кривая циркадной активности и темп эктотерма.
 
-- **Cursor** — position and velocity become a looming stimulus, split between
-  the two eyes by bearing, fed to 314 LC4/LPLC2 neurons. A lunge drives the
-  DNp01 giant fiber and the fly takes off ~4 ms later. Fast motion nearby is
-  an air puff on the sensory pathway.
-- **Clicks** — a global mouse-button press is a tap on the fly's substrate,
-  stimulating sensory neurons with a strength that falls off with distance.
-- **Windows** — top edges of real windows are walkable ledges; a window
-  appearing near the fly is a looming object. Only geometry is read: the
-  pixels underneath the fly are never sampled.
-- **Typing** — the system idle timer says an input device was touched; if the
-  cursor did not move and no button went down, that was the keyboard. No key
-  is ever polled individually.
-- **Clock and CPU load** — circadian activity curve and an ectotherm's tempo.
+## Мульти-монитор
 
-## Multi-monitor
+Оверлей охватывает объединение всех дисплеев, поэтому ходьба и полёт между мониторами —
+это обычное движение, а не переключение режима. Дисплеи передаются в сцену как rects,
+чтобы муха никогда не целилась в мёртвые углы непрямоугольной раскладки. «Send Fly to
+Next Display» в меню трее подталкивает её туда по запросу.
 
-The overlay spans the union of all displays, so walking and flying between
-monitors is ordinary movement rather than a mode switch. Displays are passed
-into the scene as rects, so the fly never targets the dead corners of a
-non-rectangular layout. "Send Fly to Next Display" in the tray menu nudges it
-across on demand.
+Windows ограничивает окно фиксированного размера рабочей областью одного монитора, что
+заставляет сцену верить, будто она шире реального окна — тогда муха ходит по координатам,
+которых нет на экране, и исчезает. Поэтому оверлей остаётся изменяемым по размеру, а
+сцена всегда получает *фактические* границы окна.
 
-Windows clamps a fixed-size window to one monitor's work area, which would
-leave the scene believing it is wider than the window really is — the fly then
-walks into coordinates that are not on screen and appears to vanish. The
-overlay therefore stays resizable and the scene is always told the window's
-*actual* bounds.
+## Известные ограничения
 
-## Known limits
+- Windows не композитит оверлеи над **исключительным** fullscreen-приложениями; там муха
+  скрыта. Borderless fullscreen в порядке.
+- `koffi` обеспечивает Win32-вызовы. Без неё муха всё равно работает, но теряет уступы
+  окон и тапы кликов (при запуске печатается предупреждение).
+- На Linux/X11 процесс GPU Electron v32 может не запуститься в некоторых драйверах
+  (`GPU process isn't usable`, иногда краш). Запустите с `npm start -- --disable-gpu` —
+  муха рендерится через three.js независимо.
+- Старый Windows-порт использовал `screen.screenToDipPoint`, который Electron v32 удалил;
+  Linux-путь конвертирует физические пиксели в DIP через `scaleFactor` дисплея.
 
-- Windows does not composite overlays above **exclusive**-fullscreen apps; the
-  fly is hidden there. Borderless fullscreen is fine.
-- `koffi` provides the Win32 calls. Without it the fly still runs, but loses
-  window ledges and click taps (a warning is printed on startup).
-- On Linux/X11, Electron v32's GPU process can fail to launch under some drivers
-  (`GPU process isn't usable`, sometimes a crash). Start with `npm start --
-  --disable-gpu` — the fly renders through three.js regardless.
-- The old Windows port used `screen.screenToDipPoint`, which Electron v32
-  removed; the Linux path converts physical pixels to DIP via the display's
-  `scaleFactor` instead.
+## Расположение файлов
 
-## Layout
-
-| file | contents |
+| файл | содержимое |
 |---|---|
-| `main.js` | Electron main: overlay + brain windows, tray, environment senses |
-| `preload.mjs` | the only main↔renderer bridge |
-| `renderer/overlay.js` | `buildScene` + `Coordinator` from `main.swift` |
-| `renderer/brain.js` | port of `BrainView.swift` |
-| `src/sim.js` | port of `Sim.swift` (`LIFSim`, `SpikeBus`, `BrainSignals`) |
-| `src/flymodel.js` | port of `FlyModel.swift` (body geometry + behavior) |
-| `src/signals.js` | port of `SignalBuilder` |
-| `src/win32.js` | user32/dwmapi through koffi |
-| `src/linux_env.py` | X11 window/mouse sensing via python-xlib (shelled out from linuxX11.js) |
-| `src/linuxX11.js` | Linux environment bridge — runs linux_env.py synchronously |
-| `src/environment.js` | circadian curve, CPU-load tempo |
-| `src/data.js` | Node-only JSON loading (kept out of `sim.js` for the renderer) |
-| `test/` | ports of `--simtest` and `--behaviortest` |
+| `main.js` | Electron main: оверлей + окна мозга, трей, ощущения окружения |
+| `preload.mjs` | единственный мост main↔renderer |
+| `renderer/overlay.js` | `buildScene` + `Coordinator` из `main.swift` |
+| `renderer/brain.js` | порт `BrainView.swift` |
+| `src/sim.js` | порт `Sim.swift` (`LIFSim`, `SpikeBus`, `BrainSignals`) |
+| `src/flymodel.js` | порт `FlyModel.swift` (геометрия тела + поведение) |
+| `src/signals.js` | порт `SignalBuilder` |
+| `src/win32.js` | user32/dwmapi через koffi |
+| `src/linux_env.py` | ощущение X11 (окна/мышь) через python-xlib (вызывается из linuxX11.js) |
+| `src/linuxX11.js` | мост окружения Linux — синхронно запускает linux_env.py |
+| `src/environment.js` | кривая циркадной активности, темп нагрузки CPU |
+| `src/data.js` | загрузка JSON только для Node (держится вне `sim.js` для renderer) |
+| `test/` | порты `--simtest` и `--behaviortest` |
 
-Data comes from `../data/` — the same shipped `brain_points.json` and
-`circuit.json`, under the same CC BY-NC 4.0 terms.
+Данные из `../data/` — те же поставляемые `brain_points.json` и `circuit.json`,
+по тем же условиям CC BY-NC 4.0.
