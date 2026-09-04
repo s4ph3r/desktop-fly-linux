@@ -1,69 +1,51 @@
-# DesktopFly для Windows
+# DesktopFly для Linux
 
-Windows-версия DesktopFly: та же 3D-муха дрозофила на прозрачном оверлее рабочего
-стола, приводимая в движение той же симуляцией integrate-and-fire с утечкой (LIF)
-на частоте 1 кГц из 668 реальных нейронов коннектома FlyWire (FAFB v783).
+DesktopFly — 3D-муха дрозофила на прозрачном оверлее рабочего стола Linux, приводимая
+в движение той же симуляцией integrate-and-fire с утечкой (LIF) на частоте 1 кГц из
+668 реальных нейронов коннектома FlyWire (FAFB v783).
 
 Мозг — это побайтовый порт `Sim.swift`; тело и поведение — побайтовый порт
 `FlyModel.swift`. Оба набора тестов пришли вместе с ними и являются здесь истиной
-в последней инстанции, как и на macOS.
+в последней инстанции.
 
-## Почему порт, а не переработка
+## Почему Electron + Python
 
-macOS DesktopFly связывает `Cocoa` и `SceneKit`, которых нет ни на Windows —
-исходный Swift-тулчейн поставляется только со stdlib, Foundation, Dispatch и WinSDK.
-Всё, что рисует или взаимодействует с системой, пришлось переписывать; всё, что
-вычисляет, пришло без изменений в поведении.
+Приложение построено на Electron (WebGL через three.js) для рендеринга, а сенсоринг
+рабочего стола под X11 реализован через небольшой Python-скрипт (`src/linux_env.py`),
+который напрямую общается с сервером X через [python-xlib](https://pypi.org/project/python-Xlib/).
 
-| macOS | Windows | Linux/X11 |
-|---|---|---|
-| SceneKit | three.js (WebGL) | three.js (WebGL) |
-| AppKit `NSPanel`, borderless + `ignoresMouseEvents` | Electron `BrowserWindow`, `transparent` + `setIgnoreMouseEvents` | то же, что и Windows |
-| Меню `NSStatusItem` в строке меню | `Tray` | то же, что и Windows |
-| `CGWindowListCopyWindowInfo` | `EnumWindows` + `DwmGetWindowAttribute` через koffi | X11 через Python + python-xlib (`linux_env.py`) |
-| Глобальный монитор мыши `NSEvent` | `GetAsyncKeyState(VK_LBUTTON/VK_RBUTTON)` | `XQueryPointer` на корневом окне (через Python) |
-| Idle `CGEventSource` | `powerMonitor.getSystemIdleTime()` | то же, что и Windows |
-| Тепловое состояние `ProcessInfo.thermalState` | нагрузка CPU (нет эквивалента на Windows без драйверов вендора) | то же — темп нагрузки CPU |
-| Один `NSScreen`, прыжок через меню | один оверлей на весь виртуальный рабочий стол | то же, что и Windows |
+| macOS | Linux/X11 (этот порт) |
+|---|---|
+| SceneKit | three.js (WebGL) |
+| AppKit `NSPanel`, borderless + `ignoresMouseEvents` | Electron `BrowserWindow`, `transparent` + `setIgnoreMouseEvents` |
+| Меню `NSStatusItem` в строке меню | `Tray` |
+| `CGWindowListCopyWindowInfo` | X11 через Python + python-xlib (`linux_env.py`) |
+| Глобальный монитор мыши `NSEvent` | `XQueryPointer` на корневом окне (через Python) |
+| Idle `CGEventSource` | `powerMonitor.getSystemIdleTime()` |
+| Тепловое состояние `ProcessInfo.thermalState` | нагрузка CPU — темп нагрузки CPU |
+| Один `NSScreen`, прыжок через меню | один оверлей на весь виртуальный рабочий стол |
 
 ## Запуск
 
 ```sh
+cd desktop-fly/windows
 npm install
-npm start              # значок в трее; выход оттуда
+npm start -- --disable-gpu             # значок в трее 🪰; выход оттуда
 npm run simtest        # инварианты сети (ОБЯЗАТЕЛЬНО проходит после изменений sim)
 npm run behaviortest   # 18 проверок «от начала до конца» sim -> тело
 npm test               # оба набора
 ```
 
-`DESKTOPFLY_DEBUG=1 npm start` логирует террейд окон, геометрию оверлея и
-консольный вывод рендерера в stderr.
+`DESKTOPFLY_DEBUG=1 npm start -- --disable-gpu` логирует террейд окон, геометрию
+оверлея и консольный вывод рендерера в stderr.
 
-### Linux / X11
+Наборы тестов запускаются на голом Node — three.js строит граф сцены мухи
+headlessly, поэтому поведение тестируется без GPU.
 
-Электронный порт работает на Linux из коробки — three.js рисует headlessly, поэтому
-телу мухи не нужен GPU. Единственное платформозависимое изменение — то, как он
-ощущает рабочий стол: macOS использует `CGWindowListCopyWindowInfo`, а Windows —
-user32 через koffi, но под X11 нет ни того, ни другого. Вместо этого порт вызывает
-небольшой Python-скрипт (`src/linux_env.py`), который напрямую общается с сервером
-X через [python-xlib](https://pypi.org/project/python-Xlib/):
-
-- **Террейд окон** — `XQueryTree` на корневом окне, затем для каждого дочернего
-  окна `get_attributes()` (видимо), `get_geometry()` (рамка) и `_NET_WM_WINDOW_TYPE`
-  (пропустить панели инструментов/док/рабочий стол). Окна собственного процесса
-  отфильтрованы по `_NET_WM_PID`. Каждое окно обернуто в try/except, поэтому окно,
-  умершее посреди перечисления, пропускается вместо краша приложения.
-- **Кнопки мыши** — `XQueryPointer` на корневом окне → `Button1Mask` /
-  `Button3Mask`.
-
-Python-скрипт вызывается синхронно из `src/linuxX11.js` через `spawnSync`, поэтому
-интерфейс (`listWindows`, `pollMouseButtons`, `linuxAvailable`) точно совпадает с
-`win32.js`. На машине без python3 или python-xlib муха всё равно работает, но теряет
-уступы окон и тапы кликов (при запуске печатается предупреждение).
+### Зависимости системы
 
 ```sh
-pip install python-Xlib        # или: sudo apt install python3-Xlib
-npm start -- --disable-gpu     # см. «Примечание по GPU» ниже
+sudo apt install python3-Xlib          # или: pip install python-Xlib
 ```
 
 `--disable-gpu` рекомендуется под X11 — процесс GPU Electron v32 может упасть при
@@ -72,8 +54,8 @@ npm start -- --disable-gpu     # см. «Примечание по GPU» ниж�
 
 ## Что ощущает муха
 
-Всё — только опрос и не требует диалога разрешений. Как и на macOS, муха узнаёт
-*когда* что-то происходит, никогда *что*:
+Всё — только опрос и не требует диалога разрешений. Муха узнаёт *когда* что-то
+происходит, никогда *что*:
 
 - **Курсор** — положение и скорость становятся стимулом приближения, разделяются
   между глазами по азимуту, подаётся на 314 нейронов LC4/LPLC2. Выпад приводит к
@@ -96,22 +78,16 @@ npm start -- --disable-gpu     # см. «Примечание по GPU» ниж�
 чтобы муха никогда не целилась в мёртвые углы непрямоугольной раскладки. «Send Fly to
 Next Display» в меню трее подталкивает её туда по запросу.
 
-Windows ограничивает окно фиксированного размера рабочей областью одного монитора, что
-заставляет сцену верить, будто она шире реального окна — тогда муха ходит по координатам,
-которых нет на экране, и исчезает. Поэтому оверлей остаётся изменяемым по размеру, а
-сцена всегда получает *фактические* границы окна.
-
 ## Известные ограничения
 
-- Windows не композитит оверлеи над **исключительным** fullscreen-приложениями; там муха
-  скрыта. Borderless fullscreen в порядке.
-- `koffi` обеспечивает Win32-вызовы. Без неё муха всё равно работает, но теряет уступы
-  окон и тапы кликов (при запуске печатается предупреждение).
-- На Linux/X11 процесс GPU Electron v32 может не запуститься в некоторых драйверах
+- Под X11 процесс GPU Electron v32 может не запуститься в некоторых драйверах
   (`GPU process isn't usable`, иногда краш). Запустите с `npm start -- --disable-gpu` —
   муха рендерится через three.js независимо.
-- Старый Windows-порт использовал `screen.screenToDipPoint`, который Electron v32 удалил;
-  Linux-путь конвертирует физические пиксели в DIP через `scaleFactor` дисплея.
+- Сенсинг рабочего стола работает через Python + python-xlib. Без python3 или
+  python-Xlib муха всё равно работает, но теряет уступы окон и тапы кликов (при запуске
+  печатается предупреждение).
+- Под X11 оверлеи не композитятся над **исключительным** fullscreen-приложениями;
+  там муха скрыта. Borderless fullscreen в порядке.
 
 ## Расположение файлов
 
@@ -124,11 +100,10 @@ Windows ограничивает окно фиксированного разм�
 | `src/sim.js` | порт `Sim.swift` (`LIFSim`, `SpikeBus`, `BrainSignals`) |
 | `src/flymodel.js` | порт `FlyModel.swift` (геометрия тела + поведение) |
 | `src/signals.js` | порт `SignalBuilder` |
-| `src/win32.js` | user32/dwmapi через koffi |
 | `src/linux_env.py` | ощущение X11 (окна/мышь) через python-xlib (вызывается из linuxX11.js) |
 | `src/linuxX11.js` | мост окружения Linux — синхронно запускает linux_env.py |
 | `src/environment.js` | кривая циркадной активности, темп нагрузки CPU |
-| `src/data.js` | загрузка JSON только для Node (держится вне `sim.js` для renderer) |
+| `src/data.js` | загрузка JSON только для Node (держит вне `sim.js` для renderer) |
 | `test/` | порты `--simtest` и `--behaviortest` |
 
 Данные из `../data/` — те же поставляемые `brain_points.json` и `circuit.json`,
