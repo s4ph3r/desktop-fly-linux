@@ -45,7 +45,7 @@ headlessly, поэтому поведение тестируется без GPU.
 ### Зависимости системы
 
 ```sh
-sudo apt install python3-Xlib          # или: pip install python-Xlib
+sudo apt install python3-pip && pip install python-Xlib
 ```
 
 `--disable-gpu` рекомендуется под X11 — процесс GPU Electron v32 может упасть при
